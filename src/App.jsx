@@ -4,6 +4,31 @@ import Dashboard from "./pages/Dashboard";
 import { useEffect, useState } from "react";
 import { supabase } from "./lib/supabase";
 
+
+function formatAppointmentDate(dateString) {
+  if (!dateString) return "Date not set";
+
+  const [year, month, day] = dateString.split("-").map(Number);
+
+  return new Date(year, month - 1, day).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatAppointmentTime(timeString) {
+  if (!timeString) return "Time not set";
+
+  const [hours, minutes] = timeString.split(":").map(Number);
+  const date = new Date(2000, 0, 1, hours, minutes);
+
+  return date.toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
 function HomeApp() {
   const [showAppointment, setShowAppointment] = useState(false);
   const [appointments, setAppointments] = useState([]);
@@ -65,7 +90,7 @@ console.error("APPOINTMENTS ERROR HINT:", error?.hint);
 
     const doctorIds = {
       "Dr. Healthcare": "f866925b-0980-431f-9040-51d620323871",
-      "Dr. Wellness": "fbd3954c-e20d-43a1-bd78-5cbcbe53f14",
+      "Dr. Wellness": "fbd3954c-e20d-43a1-bd78-5cbcfbe53f14",
       "Dr. Care": "a8d25266-e6e4-4db6-a7f7-d5ec01cf52c0",
     };
 
@@ -318,41 +343,42 @@ const appointment = {
 
               appointments.map((appointment) => (
 
-                <div className="card" key={appointment.id}>
 
-                  <h3>Appointment</h3>
+<div className="appointment-card" key={appointment.id}>
+  <div className="appointment-card-header">
+    <h3>Appointment</h3>
+    <span className={`status-badge status-${(appointment.status || "scheduled").toLowerCase()}`}>
+      {appointment.status || "Scheduled"}
+    </span>
+  </div>
 
-                  <p>
-                    <strong>Date:</strong>{" "}
-                    {appointment.appointment_date}
-                  </p>
+  <div className="appointment-details">
+    <p>
+      <strong>Date:</strong>{" "}
+      {formatAppointmentDate(appointment.appointment_date)}
+    </p>
 
-                  <p>
-                    <strong>Time:</strong>{" "}
-                    {appointment.appointment_time}
-                  </p>
+    <p>
+      <strong>Time:</strong>{" "}
+      {formatAppointmentTime(appointment.appointment_time)}
+    </p>
 
-                <p>
-  <strong>Patient:</strong>{" "}
-  {appointment.patients?.profiles?.full_name || "Patient"}
-</p>
+    <p>
+      <strong>Patient:</strong>{" "}
+      {appointment.patients?.profiles?.full_name || "Patient"}
+    </p>
 
-<p>
-  <strong>Doctor:</strong>{" "}
-  {appointment.doctors?.full_name || "Doctor"}
-</p>
+    <p>
+      <strong>Doctor:</strong>{" "}
+      {appointment.doctors?.full_name || "Doctor"}
+    </p>
 
-<p>
-  <strong>Status:</strong>{" "}
-  {appointment.status || "Scheduled"}
-</p>
-
-<p>
-  <strong>Reason:</strong>{" "}
-  {appointment.reason || "Not provided"}
-</p>
-
-                </div>
+    <p>
+      <strong>Reason:</strong>{" "}
+      {appointment.reason || "Not provided"}
+    </p>
+  </div>
+</div>
 
               ))
             )}
@@ -456,13 +482,16 @@ const appointment = {
                 required
               />
 
-              <label>Reason for Visit</label>
+             
+<label>Reason for Visit</label>
 
-              <textarea
-                name="reason"
-                placeholder="Briefly describe your reason for the visit"
-                rows="3"
-              />
+<textarea
+  name="reason"
+  placeholder="Briefly describe your reason for the visit"
+  rows="3"
+  required
+/>
+
 
               <button
                 type="submit"

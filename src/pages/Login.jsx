@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
-function Login() {
+export default function Login() {
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -11,8 +11,8 @@ function Login() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleLogin(e) {
-    e.preventDefault();
+  async function handleLogin(event) {
+    event.preventDefault();
     setMessage("");
     setLoading(true);
 
@@ -36,7 +36,7 @@ function Login() {
   }
 
   return (
-    <div style={{ padding: "40px", maxWidth: "400px", margin: "auto" }}>
+    <main style={{ padding: "40px", maxWidth: "400px", margin: "auto" }}>
       <h2>Jeeva Healthcare OS Login</h2>
 
       <form onSubmit={handleLogin}>
@@ -44,7 +44,7 @@ function Login() {
           type="email"
           placeholder="Email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(event) => setEmail(event.target.value)}
           autoComplete="email"
           required
           style={{
@@ -59,7 +59,7 @@ function Login() {
           type="password"
           placeholder="Password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(event) => setPassword(event.target.value)}
           autoComplete="current-password"
           required
           style={{
@@ -73,10 +73,7 @@ function Login() {
         <button
           type="submit"
           disabled={loading}
-          style={{
-            width: "100%",
-            padding: "10px",
-          }}
+          style={{ width: "100%", padding: "10px" }}
         >
           {loading ? "Logging in..." : "Login"}
         </button>
@@ -89,12 +86,9 @@ function Login() {
       )}
 
       <p style={{ marginTop: "20px", textAlign: "center" }}>
-        Don't have an account?{" "}
-        <Link to="/signup">Create an account</Link>
+        Don't have an account? <Link to="/signup">Create an account</Link>
       </p>
-    </div>
+    </main>
   );
 }
-
-export default Login;
 ```

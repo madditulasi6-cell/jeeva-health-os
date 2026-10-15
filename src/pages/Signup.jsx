@@ -16,8 +16,8 @@ export default function Signup() {
   async function handleSignup(event) {
     event.preventDefault();
     setError("");
-    setMessage("");
-
+    setMessage("");   
+    
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
       return;

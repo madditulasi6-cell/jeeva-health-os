@@ -1,5 +1,6 @@
+```jsx
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
 function Login() {
@@ -15,20 +16,23 @@ function Login() {
     setMessage("");
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    setLoading(false);
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
 
-    if (error) {
-      setMessage(error.message);
-      return;
+      navigate("/dashboard");
+    } catch {
+      setMessage("Unable to log in. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-   setMessage("Login successful!");
-navigate("/dashboard");
   }
 
   return (
@@ -41,11 +45,13 @@ navigate("/dashboard");
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
           required
           style={{
             width: "100%",
             padding: "10px",
             marginBottom: "10px",
+            boxSizing: "border-box",
           }}
         />
 
@@ -54,11 +60,13 @@ navigate("/dashboard");
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
           required
           style={{
             width: "100%",
             padding: "10px",
             marginBottom: "10px",
+            boxSizing: "border-box",
           }}
         />
 
@@ -75,12 +83,18 @@ navigate("/dashboard");
       </form>
 
       {message && (
-        <p style={{ marginTop: "15px" }}>
+        <p role="status" style={{ marginTop: "15px" }}>
           {message}
         </p>
       )}
+
+      <p style={{ marginTop: "20px", textAlign: "center" }}>
+        Don't have an account?{" "}
+        <Link to="/signup">Create an account</Link>
+      </p>
     </div>
   );
 }
 
 export default Login;
+```

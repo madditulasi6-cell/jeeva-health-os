@@ -12,8 +12,7 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-
+  const [loading, setLoading] = useState(false); 
   async function handleSignup(event) {
     event.preventDefault();
     setError("");

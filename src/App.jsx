@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import { useEffect, useState } from "react";
 import { supabase } from "./lib/supabase";
@@ -530,11 +531,12 @@ const appointment = {
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<HomeApp />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-      </Routes>
+     <Routes>
+  <Route path="/" element={<HomeApp />} />
+  <Route path="/login" element={<Login />} />
+  <Route path="/signup" element={<Signup />} />
+  <Route path="/dashboard" element={<Dashboard />} />
+</Routes>
     </BrowserRouter>
   );
 }

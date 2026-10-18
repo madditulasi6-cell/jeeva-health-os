@@ -1,177 +1,239 @@
-import { useEffect, useState } from "react";
+
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 function Dashboard() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [appointments, setAppointments] = useState([]);
+  const [healthRecords, setHealthRecords] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [appointmentsLoading, setAppointmentsLoading] = useState(true);
-  
-const [healthRecords, setHealthRecords] = useState([]);
-const [healthRecordsLoading, setHealthRecordsLoading] = useState(true);
-  useEffect(() => {
-    loadDashboard();
-  }, []);
+  const [healthRecordsLoading, setHealthRecordsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
-  async function loadDashboard() {
-    console.log("Checking Jeeva session...");
-
-const { data: sessionData, error: sessionError } =
-  await supabase.auth.getSession();
-
-console.log("JEEVA SESSION:", sessionData.session);
-console.log("SESSION ERROR:", sessionError);
+  const loadDashboard = useCallback(async () => {
     setLoading(true);
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      setLoading(false);
-      setAppointmentsLoading(false);
-      return;
-    }
-
-    setUser(user);
-
-    const { data: profileData, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError) {
-      console.error("Profile error:", profileError);
-    }
-
-    setProfile(profileData);
-
-    // Find the patient record belonging to this logged-in user
-    const { data: patient, error: patientError } = await supabase
-      .from("patients")
-      .select("id")
-      .eq("profile_id", user.id)
-      .single();
-
-    if (patientError || !patient) {
-      console.error("Patient lookup error:", patientError);
-      setAppointments([]);
-      setAppointmentsLoading(false);
-      setLoading(false);
-      return;
-    }
-
-        // Load this patient's health records
+    setAppointmentsLoading(true);
     setHealthRecordsLoading(true);
+    setErrorMessage("");
 
-    const { data: healthRecordData, error: healthRecordError } =
-      await supabase
+    try {
+      // Check whether a user is logged in.
+      const {
+        data: { user: currentUser },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) throw userError;
+
+      if (!currentUser) {
+        setUser(null);
+        setProfile(null);
+        setAppointments([]);
+        setHealthRecords([]);
+        return;
+      }
+
+      setUser(currentUser);
+
+      // Load the user's profile.
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", currentUser.id)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error("Profile error:", profileError);
+      }
+
+      setProfile(profileData || null);
+
+      // Find the patient record associated with this user.
+      const { data: patient, error: patientError } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("profile_id", currentUser.id)
+        .maybeSingle();
+
+      if (patientError) {
+        console.error("Patient lookup error:", patientError);
+        setErrorMessage(
+          "We could not load your patient information. Please try again."
+        );
+        return;
+      }
+
+      if (!patient) {
+        setErrorMessage(
+          "Your account is signed in, but a patient profile has not been created yet."
+        );
+        return;
+      }
+
+      // Load this patient's health records.
+      const {
+        data: healthRecordData,
+        error: healthRecordError,
+      } = await supabase
         .from("health_records")
         .select("*")
         .eq("patient_id", patient.id)
         .order("recorded_at", { ascending: false });
 
-    if (healthRecordError) {
-      console.error("Health Records error:", healthRecordError);
-      setHealthRecords([]);
-    } else {
-      setHealthRecords(healthRecordData || []);
-    }
+      if (healthRecordError) {
+        console.error("Health records error:", healthRecordError);
+        setHealthRecords([]);
+      } else {
+        setHealthRecords(healthRecordData || []);
+      }
 
-    setHealthRecordsLoading(false);
-    // Load only this patient's appointments
-    const { data: appointmentData, error: appointmentError } =
-      await supabase
+      // Load only this patient's appointments.
+      const {
+        data: appointmentData,
+        error: appointmentError,
+      } = await supabase
         .from("appointments")
         .select("*")
         .eq("patient_id", patient.id)
         .order("appointment_date", { ascending: true });
 
-    if (appointmentError) {
-      console.error("Appointments error:", appointmentError);
-      setAppointments([]);
-    } else {
-      setAppointments(appointmentData || []);
+      if (appointmentError) {
+        console.error("Appointments error:", appointmentError);
+        setAppointments([]);
+      } else {
+        setAppointments(appointmentData || []);
+      }
+    } catch (error) {
+      console.error("Dashboard loading error:", error);
+      setErrorMessage(
+        "Unable to load your dashboard. Please check your connection and try again."
+      );
+    } finally {
+      setLoading(false);
+      setAppointmentsLoading(false);
+      setHealthRecordsLoading(false);
     }
+  }, []);
 
-    setAppointmentsLoading(false);
-    setLoading(false);
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await loadDashboard();
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error("Logout error:", error);
+      setErrorMessage("Unable to log out. Please try again.");
+      return;
+    }
+
     window.location.href = "/login";
   }
 
   if (loading) {
     return (
-      <div style={{ padding: "40px" }}>
-        <h2>Loading dashboard...</h2>
-      </div>
+      <main style={styles.container}>
+        <h2>Loading Jeeva Healthcare OS...</h2>
+        <p>Please wait while we load your dashboard.</p>
+      </main>
     );
   }
 
   if (!user) {
     return (
-      <div style={{ padding: "40px" }}>
-        <h2>Please log in first.</h2>
-        <button onClick={() => (window.location.href = "/login")}>
+      <main style={styles.container}>
+        <h1>🏥 Jeeva Healthcare OS</h1>
+        <h2>Please log in first</h2>
+        <p>Log in to access your appointments and private health records.</p>
+        <button
+          style={styles.primaryButton}
+          onClick={() => {
+            window.location.href = "/login";
+          }}
+        >
           Go to Login
         </button>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div style={{ padding: "40px", maxWidth: "900px", margin: "auto" }}>
-      <h1>🏥 Jeeva Patient Dashboard</h1>
-
-      <p>
-        <strong>Email:</strong> {user.email}
-      </p>
-
-      <p>
-        <strong>Name:</strong>{" "}
-        {profile?.full_name || "Not set yet"}
-      </p>
-
-      <p>
-        <strong>Role:</strong>{" "}
-        {profile?.role || "patient"}
-      </p>
-
-      <hr />
-
-      <h2>Appointments</h2>
-
-      {appointmentsLoading ? (
-        <p>Loading appointments...</p>
-      ) : appointments.length === 0 ? (
-        <p>No appointments found.</p>
-      ) : (
+    <main style={styles.container}>
+      <header style={styles.header}>
         <div>
-          {appointments.map((appointment) => (
-            <div
-              key={appointment.id}
-              style={{
-                border: "1px solid #ddd",
-                borderRadius: "10px",
-                padding: "20px",
-                marginBottom: "15px",
-              }}
-            >
-              <h3>🏥 Doctor Appointment</h3>
+          <h1>🏥 Jeeva Patient Dashboard</h1>
+          <p>Welcome to your healthcare dashboard.</p>
+        </div>
+
+        <button
+          style={styles.secondaryButton}
+          onClick={handleRefresh}
+          disabled={refreshing}
+        >
+          {refreshing ? "Refreshing..." : "Refresh Dashboard"}
+        </button>
+      </header>
+
+      {errorMessage && (
+        <div role="alert" style={styles.error}>
+          <p>{errorMessage}</p>
+          <button style={styles.secondaryButton} onClick={handleRefresh}>
+            Try Again
+          </button>
+        </div>
+      )}
+
+      <section style={styles.card}>
+        <h2>My Profile</h2>
+
+        <p>
+          <strong>Email:</strong> {user.email || "Not available"}
+        </p>
+
+        <p>
+          <strong>Name:</strong>{" "}
+          {profile?.full_name || "Not set yet"}
+        </p>
+
+        <p>
+          <strong>Role:</strong> {profile?.role || "patient"}
+        </p>
+      </section>
+
+      <section style={styles.card}>
+        <h2>📅 My Appointments</h2>
+
+        {appointmentsLoading ? (
+          <p>Loading appointments...</p>
+        ) : appointments.length === 0 ? (
+          <p>No appointments found.</p>
+        ) : (
+          appointments.map((appointment) => (
+            <article key={appointment.id} style={styles.item}>
+              <h3>Doctor Appointment</h3>
 
               <p>
                 <strong>Date:</strong>{" "}
-                {appointment.appointment_date}
+                {appointment.appointment_date || "Not provided"}
               </p>
 
               <p>
                 <strong>Time:</strong>{" "}
-                {appointment.appointment_time}
+                {appointment.appointment_time || "Not provided"}
               </p>
 
               <p>
@@ -186,78 +248,133 @@ console.log("SESSION ERROR:", sessionError);
 
               <p>
                 <strong>Doctor ID:</strong>{" "}
-                {appointment.doctor_id}
+                {appointment.doctor_id || "Not assigned"}
               </p>
-            </div>
-          ))}
-        </div>
-      )}
+            </article>
+          ))
+        )}
+      </section>
 
-      <hr />
+      <section style={styles.card}>
+        <h2>📋 My Health Records</h2>
 
-     <h2>Health Records</h2>
+        {healthRecordsLoading ? (
+          <p>Loading health records...</p>
+        ) : healthRecords.length === 0 ? (
+          <p>No health records found.</p>
+        ) : (
+          healthRecords.map((record) => (
+            <article key={record.id} style={styles.item}>
+              <h3>{record.record_type || "Health Record"}</h3>
 
-{healthRecordsLoading ? (
-  <p>Loading health records...</p>
-) : healthRecords.length === 0 ? (
-  <p>No health records found.</p>
-) : (
-  <div>
-    {healthRecords.map((record) => (
-      <div
-        key={record.id}
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: "10px",
-          padding: "20px",
-          marginBottom: "15px",
-        }}
-      >
-        <h3>📋 {record.record_type}</h3>
+              <p>
+                <strong>Diagnosis:</strong>{" "}
+                {record.diagnosis || "Not provided"}
+              </p>
 
-        <p>
-          <strong>Diagnosis:</strong>{" "}
-          {record.diagnosis || "Not provided"}
-        </p>
+              <p>
+                <strong>Symptoms:</strong>{" "}
+                {record.symptoms || "Not provided"}
+              </p>
 
-        <p>
-          <strong>Symptoms:</strong>{" "}
-          {record.symptoms || "Not provided"}
-        </p>
+              <p>
+                <strong>Treatment:</strong>{" "}
+                {record.treatment || "Not provided"}
+              </p>
 
-        <p>
-          <strong>Treatment:</strong>{" "}
-          {record.treatment || "Not provided"}
-        </p>
+              <p>
+                <strong>Notes:</strong>{" "}
+                {record.notes || "Not provided"}
+              </p>
 
-        <p>
-          <strong>Notes:</strong>{" "}
-          {record.notes || "Not provided"}
-        </p>
+              <p>
+                <strong>Recorded:</strong>{" "}
+                {record.recorded_at
+                  ? new Date(record.recorded_at).toLocaleString()
+                  : "Not available"}
+              </p>
+            </article>
+          ))
+        )}
+      </section>
 
-        <p>
-          <strong>Recorded:</strong>{" "}
-          {record.recorded_at
-            ? new Date(record.recorded_at).toLocaleString()
-            : "Not available"}
-        </p>
-      </div>
-    ))}
-  </div>
-)}
-
-      <button onClick={loadDashboard}>
-        Refresh Dashboard
-      </button>
-
-      <button
-        onClick={handleLogout}
-        style={{ marginLeft: "10px" }}
-      >
-        Logout
-      </button>
-    </div>
+      <footer style={styles.footer}>
+        <button
+          style={styles.logoutButton}
+          onClick={handleLogout}
+        >
+          Log Out
+        </button>
+      </footer>
+    </main>
   );
 }
+
+const styles = {
+  container: {
+    maxWidth: "1000px",
+    margin: "0 auto",
+    padding: "24px",
+    fontFamily: "Arial, sans-serif",
+    color: "#1f2937",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: "16px",
+    marginBottom: "24px",
+  },
+  card: {
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "12px",
+    padding: "24px",
+    marginBottom: "24px",
+    overflowWrap: "anywhere",
+  },
+  item: {
+    border: "1px solid #e5e7eb",
+    borderRadius: "8px",
+    padding: "16px",
+    marginBottom: "16px",
+  },
+  primaryButton: {
+    background: "#087f8c",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "8px",
+    padding: "12px 18px",
+    cursor: "pointer",
+  },
+  secondaryButton: {
+    background: "#f3f4f6",
+    color: "#111827",
+    border: "1px solid #d1d5db",
+    borderRadius: "8px",
+    padding: "10px 14px",
+    cursor: "pointer",
+  },
+  logoutButton: {
+    background: "#b91c1c",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "8px",
+    padding: "12px 18px",
+    cursor: "pointer",
+  },
+  error: {
+    background: "#fef2f2",
+    color: "#991b1b",
+    border: "1px solid #fecaca",
+    borderRadius: "8px",
+    padding: "16px",
+    marginBottom: "24px",
+  },
+  footer: {
+    padding: "8px 0 32px",
+  },
+};
 
 export default Dashboard;

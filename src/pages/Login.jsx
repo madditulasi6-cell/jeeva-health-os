@@ -1,11 +1,10 @@
-```jsx
+
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
 export default function Login() {
   const navigate = useNavigate();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -36,7 +35,13 @@ export default function Login() {
   }
 
   return (
-    <main style={{ padding: "40px", maxWidth: "400px", margin: "auto" }}>
+    <main
+      style={{
+        padding: "40px",
+        maxWidth: "400px",
+        margin: "auto",
+      }}
+    >
       <h2>Jeeva Healthcare OS Login</h2>
 
       <form onSubmit={handleLogin}>
@@ -50,7 +55,7 @@ export default function Login() {
           style={{
             width: "100%",
             padding: "10px",
-            marginBottom: "10px",
+            marginBottom: "15px",
             boxSizing: "border-box",
           }}
         />
@@ -65,7 +70,7 @@ export default function Login() {
           style={{
             width: "100%",
             padding: "10px",
-            marginBottom: "10px",
+            marginBottom: "15px",
             boxSizing: "border-box",
           }}
         />
@@ -80,7 +85,7 @@ export default function Login() {
       </form>
 
       {message && (
-        <p role="status" style={{ marginTop: "15px" }}>
+        <p role="alert" style={{ color: "red", marginTop: "15px" }}>
           {message}
         </p>
       )}
@@ -91,4 +96,3 @@ export default function Login() {
     </main>
   );
 }
-```

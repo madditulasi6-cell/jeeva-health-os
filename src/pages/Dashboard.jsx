@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
@@ -7,101 +8,162 @@ function Dashboard() {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [appointmentsLoading, setAppointmentsLoading] = useState(true);
-  
-const [healthRecords, setHealthRecords] = useState([]);
-const [healthRecordsLoading, setHealthRecordsLoading] = useState(true);
+
+  const [healthRecords, setHealthRecords] = useState([]);
+  const [healthRecordsLoading, setHealthRecordsLoading] = useState(true);
+
   useEffect(() => {
     loadDashboard();
   }, []);
 
   async function loadDashboard() {
-    console.log("Checking Jeeva session...");
-
-const { data: sessionData, error: sessionError } =
-  await supabase.auth.getSession();
-
-console.log("JEEVA SESSION:", sessionData.session);
-console.log("SESSION ERROR:", sessionError);
     setLoading(true);
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      setLoading(false);
-      setAppointmentsLoading(false);
-      return;
-    }
-
-    setUser(user);
-
-    const { data: profileData, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError) {
-      console.error("Profile error:", profileError);
-    }
-
-    setProfile(profileData);
-
-    // Find the patient record belonging to this logged-in user
-    const { data: patient, error: patientError } = await supabase
-      .from("patients")
-      .select("id")
-      .eq("profile_id", user.id)
-      .single();
-
-    if (patientError || !patient) {
-      console.error("Patient lookup error:", patientError);
-      setAppointments([]);
-      setAppointmentsLoading(false);
-      setLoading(false);
-      return;
-    }
-
-        // Load this patient's health records
+    setAppointmentsLoading(true);
     setHealthRecordsLoading(true);
 
-    const { data: healthRecordData, error: healthRecordError } =
-      await supabase
-        .from("health_records")
-        .select("*")
-        .eq("patient_id", patient.id)
-        .order("recorded_at", { ascending: false });
+    try {
+      // Check the current logged-in user
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    if (healthRecordError) {
-      console.error("Health Records error:", healthRecordError);
-      setHealthRecords([]);
-    } else {
-      setHealthRecords(healthRecordData || []);
+      if (userError) {
+        console.error("User error:", userError);
+      }
+
+      if (!user) {
+        setUser(null);
+        setProfile(null);
+        setAppointments([]);
+        setHealthRecords([]);
+        return;
+      }
+
+      setUser(user);
+
+      // Load the user's profile
+      const { data: profileData, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .single();
+
+      if (profileError) {
+        console.error("Profile error:", profileError);
+      }
+
+      setProfile(profileData || null);
+
+      // Find the patient record for this user
+      const { data: patient, error: patientError } =
+        await supabase
+          .from("patients")
+          .select("id")
+          .eq("profile_id", user.id)
+          .single();
+
+      if (patientError || !patient) {
+        console.error("Patient lookup error:", patientError);
+
+        setAppointments([]);
+        setHealthRecords([]);
+        return;
+      }
+
+      // Load this patient's health records
+      const { data: healthRecordData, error: healthRecordError } =
+        await supabase
+          .from("health_records")
+          .select("*")
+          .eq("patient_id", patient.id)
+          .order("recorded_at", { ascending: false });
+
+      if (healthRecordError) {
+        console.error("Health records error:", healthRecordError);
+        setHealthRecords([]);
+      } else {
+        setHealthRecords(healthRecordData || []);
+      }
+
+      setHealthRecordsLoading(false);
+
+      // Load only this patient's appointments
+      const { data: appointmentData, error: appointmentError } =
+        await supabase
+          .from("appointments")
+          .select("*")
+          .eq("patient_id", patient.id)
+          .order("appointment_date", { ascending: true });
+
+      if (appointmentError) {
+        console.error("Appointments error:", appointmentError);
+        setAppointments([]);
+      } else {
+        const loadedAppointments = appointmentData || [];
+
+        // Collect the unique doctor IDs for these appointments
+        const doctorIds = [
+          ...new Set(
+            loadedAppointments
+              .map((appointment) => appointment.doctor_id)
+              .filter(Boolean)
+          ),
+        ];
+
+        let doctorsById = {};
+
+        // Fetch doctor details separately; no foreign-key join is required
+        if (doctorIds.length > 0) {
+          const { data: doctorData, error: doctorError } =
+            await supabase
+              .from("doctors")
+              .select("id, full_name, specialization")
+              .in("id", doctorIds);
+
+          if (doctorError) {
+            console.error("Doctor lookup error:", doctorError);
+          } else {
+            doctorsById = Object.fromEntries(
+              (doctorData || []).map((doctor) => [
+                doctor.id,
+                doctor,
+              ])
+            );
+          }
+        }
+
+        // Attach doctor details to each appointment
+        const appointmentsWithDoctors = loadedAppointments.map(
+          (appointment) => ({
+            ...appointment,
+            doctor: doctorsById[appointment.doctor_id] || null,
+          })
+        );
+
+        setAppointments(appointmentsWithDoctors);
+      }
+
+      setAppointmentsLoading(false);
+    } catch (error) {
+      console.error("Dashboard loading error:", error);
+    } finally {
+      setLoading(false);
+      setAppointmentsLoading(false);
+      setHealthRecordsLoading(false);
     }
-
-    setHealthRecordsLoading(false);
-    // Load only this patient's appointments
-    const { data: appointmentData, error: appointmentError } =
-      await supabase
-        .from("appointments")
-        .select("*")
-        .eq("patient_id", patient.id)
-        .order("appointment_date", { ascending: true });
-
-    if (appointmentError) {
-      console.error("Appointments error:", appointmentError);
-      setAppointments([]);
-    } else {
-      setAppointments(appointmentData || []);
-    }
-
-    setAppointmentsLoading(false);
-    setLoading(false);
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error("Logout error:", error);
+      alert("Unable to log out. Please try again.");
+      return;
+    }
+
     window.location.href = "/login";
   }
 
@@ -125,7 +187,13 @@ console.log("SESSION ERROR:", sessionError);
   }
 
   return (
-    <div style={{ padding: "40px", maxWidth: "900px", margin: "auto" }}>
+    <div
+      style={{
+        padding: "40px",
+        maxWidth: "900px",
+        margin: "auto",
+      }}
+    >
       <h1>🏥 Jeeva Patient Dashboard</h1>
 
       <p>
@@ -166,12 +234,12 @@ console.log("SESSION ERROR:", sessionError);
 
               <p>
                 <strong>Date:</strong>{" "}
-                {appointment.appointment_date}
+                {appointment.appointment_date || "Not available"}
               </p>
 
               <p>
                 <strong>Time:</strong>{" "}
-                {appointment.appointment_time}
+                {appointment.appointment_time || "Not available"}
               </p>
 
               <p>
@@ -185,8 +253,15 @@ console.log("SESSION ERROR:", sessionError);
               </p>
 
               <p>
-                <strong>Doctor ID:</strong>{" "}
-                {appointment.doctor_id}
+                <strong>Doctor:</strong>{" "}
+                {appointment.doctor?.full_name ||
+                  "Doctor details unavailable"}
+              </p>
+
+              <p>
+                <strong>Specialization:</strong>{" "}
+                {appointment.doctor?.specialization ||
+                  "Not available"}
               </p>
             </div>
           ))}
@@ -195,56 +270,56 @@ console.log("SESSION ERROR:", sessionError);
 
       <hr />
 
-     <h2>Health Records</h2>
+      <h2>Health Records</h2>
 
-{healthRecordsLoading ? (
-  <p>Loading health records...</p>
-) : healthRecords.length === 0 ? (
-  <p>No health records found.</p>
-) : (
-  <div>
-    {healthRecords.map((record) => (
-      <div
-        key={record.id}
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: "10px",
-          padding: "20px",
-          marginBottom: "15px",
-        }}
-      >
-        <h3>📋 {record.record_type}</h3>
+      {healthRecordsLoading ? (
+        <p>Loading health records...</p>
+      ) : healthRecords.length === 0 ? (
+        <p>No health records found.</p>
+      ) : (
+        <div>
+          {healthRecords.map((record) => (
+            <div
+              key={record.id}
+              style={{
+                border: "1px solid #ddd",
+                borderRadius: "10px",
+                padding: "20px",
+                marginBottom: "15px",
+              }}
+            >
+              <h3>📋 {record.record_type || "Health Record"}</h3>
 
-        <p>
-          <strong>Diagnosis:</strong>{" "}
-          {record.diagnosis || "Not provided"}
-        </p>
+              <p>
+                <strong>Diagnosis:</strong>{" "}
+                {record.diagnosis || "Not provided"}
+              </p>
 
-        <p>
-          <strong>Symptoms:</strong>{" "}
-          {record.symptoms || "Not provided"}
-        </p>
+              <p>
+                <strong>Symptoms:</strong>{" "}
+                {record.symptoms || "Not provided"}
+              </p>
 
-        <p>
-          <strong>Treatment:</strong>{" "}
-          {record.treatment || "Not provided"}
-        </p>
+              <p>
+                <strong>Treatment:</strong>{" "}
+                {record.treatment || "Not provided"}
+              </p>
 
-        <p>
-          <strong>Notes:</strong>{" "}
-          {record.notes || "Not provided"}
-        </p>
+              <p>
+                <strong>Notes:</strong>{" "}
+                {record.notes || "Not provided"}
+              </p>
 
-        <p>
-          <strong>Recorded:</strong>{" "}
-          {record.recorded_at
-            ? new Date(record.recorded_at).toLocaleString()
-            : "Not available"}
-        </p>
-      </div>
-    ))}
-  </div>
-)}
+              <p>
+                <strong>Recorded:</strong>{" "}
+                {record.recorded_at
+                  ? new Date(record.recorded_at).toLocaleString()
+                  : "Not available"}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
 
       <button onClick={loadDashboard}>
         Refresh Dashboard

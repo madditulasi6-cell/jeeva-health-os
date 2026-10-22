@@ -22,17 +22,18 @@ function Dashboard() {
     setHealthRecordsLoading(true);
 
     try {
-      // Check the current logged-in user
+      console.log("Checking Jeeva session...");
+
       const {
-        data: { user },
+        data: { user: currentUser },
         error: userError,
       } = await supabase.auth.getUser();
 
       if (userError) {
-        console.error("User error:", userError);
+        console.error("Jeeva user error:", userError);
       }
 
-      if (!user) {
+      if (!currentUser) {
         setUser(null);
         setProfile(null);
         setAppointments([]);
@@ -40,37 +41,38 @@ function Dashboard() {
         return;
       }
 
-      setUser(user);
+      setUser(currentUser);
 
-      // Load the user's profile
+      // Load the logged-in user's profile
       const { data: profileData, error: profileError } =
         await supabase
           .from("profiles")
           .select("*")
-          .eq("id", user.id)
+          .eq("id", currentUser.id)
           .single();
 
       if (profileError) {
-        console.error("Profile error:", profileError);
+        console.error("Jeeva profile error:", profileError);
       }
 
       setProfile(profileData || null);
 
-      // Find the patient record for this user
+      // Find the patient record belonging to this user
       const { data: patient, error: patientError } =
         await supabase
           .from("patients")
           .select("id")
-          .eq("profile_id", user.id)
+          .eq("profile_id", currentUser.id)
           .single();
 
       if (patientError || !patient) {
-        console.error("Patient lookup error:", patientError);
-
+        console.error("Jeeva patient lookup error:", patientError);
         setAppointments([]);
         setHealthRecords([]);
         return;
       }
+
+      console.log("JEEVA PATIENT ID:", patient.id);
 
       // Load this patient's health records
       const { data: healthRecordData, error: healthRecordError } =
@@ -81,15 +83,22 @@ function Dashboard() {
           .order("recorded_at", { ascending: false });
 
       if (healthRecordError) {
-        console.error("Health records error:", healthRecordError);
+        console.error(
+          "Jeeva health records error:",
+          healthRecordError
+        );
         setHealthRecords([]);
       } else {
         setHealthRecords(healthRecordData || []);
+        console.log(
+          "JEEVA HEALTH RECORDS FOUND:",
+          healthRecordData
+        );
       }
 
       setHealthRecordsLoading(false);
 
-      // Load only this patient's appointments
+      // Load this patient's appointments
       const { data: appointmentData, error: appointmentError } =
         await supabase
           .from("appointments")
@@ -98,12 +107,20 @@ function Dashboard() {
           .order("appointment_date", { ascending: true });
 
       if (appointmentError) {
-        console.error("Appointments error:", appointmentError);
+        console.error(
+          "Jeeva appointments error:",
+          appointmentError
+        );
         setAppointments([]);
       } else {
         const loadedAppointments = appointmentData || [];
 
-        // Collect the unique doctor IDs for these appointments
+        console.log(
+          "JEEVA APPOINTMENTS FOUND:",
+          loadedAppointments
+        );
+
+        // Collect unique doctor IDs from these appointments
         const doctorIds = [
           ...new Set(
             loadedAppointments
@@ -114,7 +131,9 @@ function Dashboard() {
 
         let doctorsById = {};
 
-        // Fetch doctor details separately; no foreign-key join is required
+        console.log("JEEVA DOCTOR IDS:", doctorIds);
+
+        // Fetch doctor details separately, without requiring a foreign-key join
         if (doctorIds.length > 0) {
           const { data: doctorData, error: doctorError } =
             await supabase
@@ -123,8 +142,13 @@ function Dashboard() {
               .in("id", doctorIds);
 
           if (doctorError) {
-            console.error("Doctor lookup error:", doctorError);
+            console.error(
+              "JEEVA DOCTOR LOOKUP ERROR:",
+              doctorError
+            );
           } else {
+            console.log("JEEVA DOCTORS FOUND:", doctorData);
+
             doctorsById = Object.fromEntries(
               (doctorData || []).map((doctor) => [
                 doctor.id,
@@ -132,14 +156,29 @@ function Dashboard() {
               ])
             );
           }
+        } else {
+          console.warn(
+            "JEEVA: No doctor IDs were found in the appointments."
+          );
         }
 
-        // Attach doctor details to each appointment
+        // Attach the matching doctor details to each appointment
         const appointmentsWithDoctors = loadedAppointments.map(
-          (appointment) => ({
-            ...appointment,
-            doctor: doctorsById[appointment.doctor_id] || null,
-          })
+          (appointment) => {
+            const doctor = doctorsById[appointment.doctor_id] || null;
+
+            if (!doctor && appointment.doctor_id) {
+              console.warn(
+                "JEEVA: Doctor details not returned for ID:",
+                appointment.doctor_id
+              );
+            }
+
+            return {
+              ...appointment,
+              doctor,
+            };
+          }
         );
 
         setAppointments(appointmentsWithDoctors);
@@ -147,7 +186,7 @@ function Dashboard() {
 
       setAppointmentsLoading(false);
     } catch (error) {
-      console.error("Dashboard loading error:", error);
+      console.error("Jeeva dashboard loading error:", error);
     } finally {
       setLoading(false);
       setAppointmentsLoading(false);
@@ -159,7 +198,7 @@ function Dashboard() {
     const { error } = await supabase.auth.signOut();
 
     if (error) {
-      console.error("Logout error:", error);
+      console.error("Jeeva logout error:", error);
       alert("Unable to log out. Please try again.");
       return;
     }
@@ -288,7 +327,9 @@ function Dashboard() {
                 marginBottom: "15px",
               }}
             >
-              <h3>📋 {record.record_type || "Health Record"}</h3>
+              <h3>
+                📋 {record.record_type || "Health Record"}
+              </h3>
 
               <p>
                 <strong>Diagnosis:</strong>{" "}

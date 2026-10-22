@@ -21,7 +21,7 @@ function Dashboard() {
     setErrorMessage("");
 
     try {
-      // Check whether a user is logged in.
+      // 1. Verify the currently logged-in user.
       const {
         data: { user: currentUser },
         error: userError,
@@ -39,12 +39,13 @@ function Dashboard() {
 
       setUser(currentUser);
 
-      // Load the user's profile.
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", currentUser.id)
-        .maybeSingle();
+      // 2. Load the patient's profile.
+      const { data: profileData, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select("id, full_name, created_at")
+          .eq("id", currentUser.id)
+          .maybeSingle();
 
       if (profileError) {
         console.error("Profile error:", profileError);
@@ -52,46 +53,47 @@ function Dashboard() {
 
       setProfile(profileData || null);
 
-      // Find the patient record associated with this user.
-      const { data: patient, error: patientError } = await supabase
-        .from("patients")
-        .select("id")
-        .eq("profile_id", currentUser.id)
-        .maybeSingle();
+      // 3. Find the patient record belonging to this user.
+      const { data: patient, error: patientError } =
+        await supabase
+          .from("patients")
+          .select("id")
+          .eq("profile_id", currentUser.id)
+          .maybeSingle();
 
       if (patientError) {
         console.error("Patient lookup error:", patientError);
         setErrorMessage(
-          "We could not load your patient information. Please try again."
+          "Unable to load your patient profile. Please try again."
         );
         return;
       }
 
       if (!patient) {
         setErrorMessage(
-          "Your account is signed in, but a patient profile has not been created yet."
+          "Your account is logged in, but no patient profile was found."
         );
         return;
       }
 
-      // Load this patient's health records.
+      // 4. Load this patient's health records.
       const {
-        data: healthRecordData,
-        error: healthRecordError,
+        data: recordData,
+        error: recordError,
       } = await supabase
         .from("health_records")
         .select("*")
         .eq("patient_id", patient.id)
         .order("recorded_at", { ascending: false });
 
-      if (healthRecordError) {
-        console.error("Health records error:", healthRecordError);
+      if (recordError) {
+        console.error("Health records error:", recordError);
         setHealthRecords([]);
       } else {
-        setHealthRecords(healthRecordData || []);
+        setHealthRecords(recordData || []);
       }
 
-      // Load only this patient's appointments.
+      // 5. Load this patient's appointments.
       const {
         data: appointmentData,
         error: appointmentError,
@@ -104,13 +106,107 @@ function Dashboard() {
       if (appointmentError) {
         console.error("Appointments error:", appointmentError);
         setAppointments([]);
-      } else {
-        setAppointments(appointmentData || []);
+        setErrorMessage(
+          "Unable to load appointments. Check your database permissions."
+        );
+        return;
       }
+
+      const appointmentList = appointmentData || [];
+
+      // 6. Collect the doctor IDs used by these appointments.
+      const doctorIds = [
+        ...new Set(
+          appointmentList
+            .map((appointment) => appointment.doctor_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      let doctorsById = {};
+      let profilesById = {};
+
+      // 7. Fetch the matching doctors without requiring a joined query.
+      if (doctorIds.length > 0) {
+        const { data: doctorData, error: doctorError } =
+          await supabase
+            .from("doctors")
+            .select("id, profile_id, specialization, doctor_code")
+            .in("id", doctorIds);
+
+        if (doctorError) {
+          console.error("Doctor lookup error:", doctorError);
+        } else {
+          const doctorList = doctorData || [];
+
+          doctorsById = Object.fromEntries(
+            doctorList.map((doctor) => [doctor.id, doctor])
+          );
+
+          // 8. Fetch doctor names from the profiles table.
+          const doctorProfileIds = [
+            ...new Set(
+              doctorList
+                .map((doctor) => doctor.profile_id)
+                .filter(Boolean)
+            ),
+          ];
+
+          if (doctorProfileIds.length > 0) {
+            const {
+              data: doctorProfiles,
+              error: doctorProfilesError,
+            } = await supabase
+              .from("profiles")
+              .select("id, full_name")
+              .in("id", doctorProfileIds);
+
+            if (doctorProfilesError) {
+              console.error(
+                "Doctor profiles error:",
+                doctorProfilesError
+              );
+            } else {
+              profilesById = Object.fromEntries(
+                (doctorProfiles || []).map((item) => [
+                  item.id,
+                  item,
+                ])
+              );
+            }
+          }
+        }
+      }
+
+      // 9. Attach the doctor name and specialization to each appointment.
+      const appointmentsWithDoctors = appointmentList.map(
+        (appointment) => {
+          const doctor = doctorsById[appointment.doctor_id];
+
+          const doctorProfile = doctor
+            ? profilesById[doctor.profile_id]
+            : null;
+
+          return {
+            ...appointment,
+            doctor: {
+              full_name:
+                doctorProfile?.full_name ||
+                (doctor?.doctor_code
+                  ? `Doctor ${doctor.doctor_code}`
+                  : "Doctor name unavailable"),
+              specialization:
+                doctor?.specialization || "Not provided",
+            },
+          };
+        }
+      );
+
+      setAppointments(appointmentsWithDoctors);
     } catch (error) {
-      console.error("Dashboard loading error:", error);
+      console.error("Dashboard error:", error);
       setErrorMessage(
-        "Unable to load your dashboard. Please check your connection and try again."
+        "Unable to load your dashboard. Please try again."
       );
     } finally {
       setLoading(false);
@@ -158,7 +254,9 @@ function Dashboard() {
       <main style={styles.container}>
         <h1>🏥 Jeeva Healthcare OS</h1>
         <h2>Please log in first</h2>
-        <p>Log in to access your appointments and private health records.</p>
+        <p>
+          Log in to access your appointments and private health records.
+        </p>
         <button
           style={styles.primaryButton}
           onClick={() => {
@@ -191,7 +289,10 @@ function Dashboard() {
       {errorMessage && (
         <div role="alert" style={styles.error}>
           <p>{errorMessage}</p>
-          <button style={styles.secondaryButton} onClick={handleRefresh}>
+          <button
+            style={styles.secondaryButton}
+            onClick={handleRefresh}
+          >
             Try Again
           </button>
         </div>
@@ -199,16 +300,13 @@ function Dashboard() {
 
       <section style={styles.card}>
         <h2>My Profile</h2>
-
         <p>
           <strong>Email:</strong> {user.email || "Not available"}
         </p>
-
         <p>
           <strong>Name:</strong>{" "}
           {profile?.full_name || "Not set yet"}
         </p>
-
         <p>
           <strong>Role:</strong> {profile?.role || "patient"}
         </p>
@@ -224,7 +322,7 @@ function Dashboard() {
         ) : (
           appointments.map((appointment) => (
             <article key={appointment.id} style={styles.item}>
-              <h3>Doctor Appointment</h3>
+              <h3>🏥 Doctor Appointment</h3>
 
               <p>
                 <strong>Date:</strong>{" "}
@@ -237,6 +335,18 @@ function Dashboard() {
               </p>
 
               <p>
+                <strong>Doctor:</strong>{" "}
+                {appointment.doctor?.full_name ||
+                  "Doctor name unavailable"}
+              </p>
+
+              <p>
+                <strong>Specialization:</strong>{" "}
+                {appointment.doctor?.specialization ||
+                  "Not provided"}
+              </p>
+
+              <p>
                 <strong>Status:</strong>{" "}
                 {appointment.status || "Scheduled"}
               </p>
@@ -244,11 +354,6 @@ function Dashboard() {
               <p>
                 <strong>Reason:</strong>{" "}
                 {appointment.reason || "Not provided"}
-              </p>
-
-              <p>
-                <strong>Doctor ID:</strong>{" "}
-                {appointment.doctor_id || "Not assigned"}
               </p>
             </article>
           ))
@@ -303,7 +408,7 @@ function Dashboard() {
           style={styles.logoutButton}
           onClick={handleLogout}
         >
-          Log Out
+          Logout
         </button>
       </footer>
     </main>

@@ -6,11 +6,13 @@ function Dashboard() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [appointments, setAppointments] = useState([]);
+  const [healthRecords, setHealthRecords] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [appointmentsLoading, setAppointmentsLoading] = useState(true);
-
-  const [healthRecords, setHealthRecords] = useState([]);
   const [healthRecordsLoading, setHealthRecordsLoading] = useState(true);
+
+  const [dashboardError, setDashboardError] = useState("");
 
   useEffect(() => {
     loadDashboard();
@@ -20,9 +22,10 @@ function Dashboard() {
     setLoading(true);
     setAppointmentsLoading(true);
     setHealthRecordsLoading(true);
+    setDashboardError("");
 
     try {
-      console.log("Checking Jeeva session...");
+      console.log("Checking Jeeva Hospital OS session...");
 
       const {
         data: { user: currentUser },
@@ -30,7 +33,7 @@ function Dashboard() {
       } = await supabase.auth.getUser();
 
       if (userError) {
-        console.error("Jeeva user error:", userError);
+        throw userError;
       }
 
       if (!currentUser) {
@@ -43,13 +46,13 @@ function Dashboard() {
 
       setUser(currentUser);
 
-      // Load the logged-in user's profile
+      // Load the logged-in user's profile.
       const { data: profileData, error: profileError } =
         await supabase
           .from("profiles")
           .select("*")
           .eq("id", currentUser.id)
-          .single();
+          .maybeSingle();
 
       if (profileError) {
         console.error("Jeeva profile error:", profileError);
@@ -57,16 +60,22 @@ function Dashboard() {
 
       setProfile(profileData || null);
 
-      // Find the patient record belonging to this user
+      // Find the patient record belonging to this user.
       const { data: patient, error: patientError } =
         await supabase
           .from("patients")
           .select("id")
           .eq("profile_id", currentUser.id)
-          .single();
+          .maybeSingle();
 
-      if (patientError || !patient) {
+      if (patientError) {
         console.error("Jeeva patient lookup error:", patientError);
+        setDashboardError("Unable to load your patient information.");
+        return;
+      }
+
+      if (!patient) {
+        console.warn("No patient record found for this account.");
         setAppointments([]);
         setHealthRecords([]);
         return;
@@ -74,13 +83,15 @@ function Dashboard() {
 
       console.log("JEEVA PATIENT ID:", patient.id);
 
-      // Load this patient's health records
-      const { data: healthRecordData, error: healthRecordError } =
-        await supabase
-          .from("health_records")
-          .select("*")
-          .eq("patient_id", patient.id)
-          .order("recorded_at", { ascending: false });
+      // Load this patient's health records.
+      const {
+        data: healthRecordData,
+        error: healthRecordError,
+      } = await supabase
+        .from("health_records")
+        .select("*")
+        .eq("patient_id", patient.id)
+        .order("recorded_at", { ascending: false });
 
       if (healthRecordError) {
         console.error(
@@ -98,13 +109,15 @@ function Dashboard() {
 
       setHealthRecordsLoading(false);
 
-      // Load this patient's appointments
-      const { data: appointmentData, error: appointmentError } =
-        await supabase
-          .from("appointments")
-          .select("*")
-          .eq("patient_id", patient.id)
-          .order("appointment_date", { ascending: true });
+      // Load this patient's appointments.
+      const {
+        data: appointmentData,
+        error: appointmentError,
+      } = await supabase
+        .from("appointments")
+        .select("*")
+        .eq("patient_id", patient.id)
+        .order("appointment_date", { ascending: true });
 
       if (appointmentError) {
         console.error(
@@ -112,81 +125,83 @@ function Dashboard() {
           appointmentError
         );
         setAppointments([]);
-      } else {
-        const loadedAppointments = appointmentData || [];
-
-        console.log(
-          "JEEVA APPOINTMENTS FOUND:",
-          loadedAppointments
-        );
-
-        // Collect unique doctor IDs from these appointments
-        const doctorIds = [
-          ...new Set(
-            loadedAppointments
-              .map((appointment) => appointment.doctor_id)
-              .filter(Boolean)
-          ),
-        ];
-
-        let doctorsById = {};
-
-        console.log("JEEVA DOCTOR IDS:", doctorIds);
-
-        // Fetch doctor details separately, without requiring a foreign-key join
-        if (doctorIds.length > 0) {
-          const { data: doctorData, error: doctorError } =
-            await supabase
-              .from("doctors")
-              .select("id, full_name, specialization")
-              .in("id", doctorIds);
-
-          if (doctorError) {
-            console.error(
-              "JEEVA DOCTOR LOOKUP ERROR:",
-              doctorError
-            );
-          } else {
-            console.log("JEEVA DOCTORS FOUND:", doctorData);
-
-            doctorsById = Object.fromEntries(
-              (doctorData || []).map((doctor) => [
-                doctor.id,
-                doctor,
-              ])
-            );
-          }
-        } else {
-          console.warn(
-            "JEEVA: No doctor IDs were found in the appointments."
-          );
-        }
-
-        // Attach the matching doctor details to each appointment
-        const appointmentsWithDoctors = loadedAppointments.map(
-          (appointment) => {
-            const doctor = doctorsById[appointment.doctor_id] || null;
-
-            if (!doctor && appointment.doctor_id) {
-              console.warn(
-                "JEEVA: Doctor details not returned for ID:",
-                appointment.doctor_id
-              );
-            }
-
-            return {
-              ...appointment,
-              doctor,
-            };
-          }
-        );
-
-        setAppointments(appointmentsWithDoctors);
+        setDashboardError("Unable to load appointments.");
+        return;
       }
 
-      setAppointmentsLoading(false);
+      const loadedAppointments = appointmentData || [];
+
+      console.log(
+        "JEEVA APPOINTMENTS FOUND:",
+        loadedAppointments
+      );
+
+      // Collect the unique doctor IDs used by these appointments.
+      const doctorIds = [
+        ...new Set(
+          loadedAppointments
+            .map((appointment) => appointment.doctor_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      const doctorsById = {};
+
+      console.log("JEEVA DOCTOR IDS:", doctorIds);
+
+      // Look up doctors using the confirmed doctors table columns.
+      if (doctorIds.length > 0) {
+        const { data: doctorData, error: doctorError } =
+          await supabase
+            .from("doctors")
+            .select(
+              "id, full_name, specialization, doctor_code"
+            )
+            .in("id", doctorIds);
+
+        if (doctorError) {
+          console.error(
+            "JEEVA DOCTOR LOOKUP ERROR:",
+            doctorError
+          );
+        } else {
+          console.log("JEEVA DOCTORS FOUND:", doctorData);
+
+          (doctorData || []).forEach((doctor) => {
+            doctorsById[String(doctor.id)] = doctor;
+          });
+        }
+      }
+
+      // Attach the matching doctor to each appointment.
+      const appointmentsWithDoctors = loadedAppointments.map(
+        (appointment) => {
+          const doctor = appointment.doctor_id
+            ? doctorsById[String(appointment.doctor_id)] || null
+            : null;
+
+          if (!doctor && appointment.doctor_id) {
+            console.warn(
+              "Doctor details not returned for appointment:",
+              appointment.id,
+              "Doctor ID:",
+              appointment.doctor_id
+            );
+          }
+
+          return {
+            ...appointment,
+            doctor,
+          };
+        }
+      );
+
+      setAppointments(appointmentsWithDoctors);
     } catch (error) {
       console.error("Jeeva dashboard loading error:", error);
+      setDashboardError(
+        error?.message || "Unable to load the dashboard."
+      );
     } finally {
       setLoading(false);
       setAppointmentsLoading(false);
@@ -235,6 +250,12 @@ function Dashboard() {
     >
       <h1>🏥 Jeeva Patient Dashboard</h1>
 
+      {dashboardError && (
+        <p style={{ color: "red" }} role="alert">
+          {dashboardError}
+        </p>
+      )}
+
       <p>
         <strong>Email:</strong> {user.email}
       </p>
@@ -245,8 +266,7 @@ function Dashboard() {
       </p>
 
       <p>
-        <strong>Role:</strong>{" "}
-        {profile?.role || "patient"}
+        <strong>Role:</strong> {profile?.role || "patient"}
       </p>
 
       <hr />
@@ -294,7 +314,9 @@ function Dashboard() {
               <p>
                 <strong>Doctor:</strong>{" "}
                 {appointment.doctor?.full_name ||
-                  "Doctor details unavailable"}
+                  (appointment.doctor?.doctor_code
+                    ? `Doctor ${appointment.doctor.doctor_code}`
+                    : "Doctor details unavailable")}
               </p>
 
               <p>
